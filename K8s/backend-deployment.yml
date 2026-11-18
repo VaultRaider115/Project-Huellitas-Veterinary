@@ -69,6 +69,11 @@ spec:
             - name: SPRING_PROFILES_ACTIVE
               value: prod
 
+            # Orígenes permitidos por CORS. Sin esto el backend usa localhost y
+            # rechaza con 403 el POST /usuario/login que llega desde el dominio.
+            - name: APP_CORS_ALLOWED_ORIGINS
+              value: https://derivevaultraider115.studio,https://dev-server.tail223158.ts.net
+
             # TEMPORAL: vuelve al comportamiento anterior (Hibernate crea lo que
             # falte, incluida la tabla `Cita-Servicio`). Cuando la migración esté
             # aplicada, cambiar a "validate" otra vez.

@@ -15,6 +15,10 @@ metadata:
   name: mariadb
 spec:
   replicas: 1
+  # Recreate, no RollingUpdate: el volumen es ReadWriteOnce y dos MariaDB
+  # arrancando a la vez sobre el mismo directorio pueden reinicializarlo.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: mariadb
