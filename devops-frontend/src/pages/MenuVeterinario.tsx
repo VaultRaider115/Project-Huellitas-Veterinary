@@ -53,8 +53,17 @@ export default function MenuVeterinario() {
     if (!correo) return
     let alive = true
 
-    Promise.all([apiGet<Perfil>(`/usuario/Nombre/${correo}`), recargar()])
-      .then(([perfil]) => alive && setNombre(perfil?.nombre || 'Veterinario'))
+    Promise.all([
+      apiGet<Perfil>(`/usuario/Nombre/${correo}`),
+      apiGet<CitaVeterinario[]>(`${base}/citas`),
+      apiGet<Receta[]>(`${base}/recetas`),
+    ])
+      .then(([perfil, cit, rec]) => {
+        if (!alive) return
+        setNombre(perfil?.nombre || 'Veterinario')
+        setCitas(Array.isArray(cit) ? cit : [])
+        setRecetas(Array.isArray(rec) ? rec : [])
+      })
       .catch((err: unknown) => {
         console.error(err)
         void alerts.error('No se pudo cargar tu información')
@@ -64,7 +73,7 @@ export default function MenuVeterinario() {
     return () => {
       alive = false
     }
-  }, [correo, recargar])
+  }, [correo, base])
 
   const cerrarNueva = () => {
     setNueva(null)
