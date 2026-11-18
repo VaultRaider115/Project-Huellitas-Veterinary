@@ -1,0 +1,57 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+# Un solo run por PR: si Dependabot empuja commits nuevos se cancela el anterior.
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: 🤖 Fusionar si pasan los checks
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # No se hace checkout del PR: pull_request_target ejecuta con permisos de
+      # escritura y el código de la rama no debe ejecutarse aquí.
+      - name: 📋 Leer metadatos de Dependabot
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Los saltos de major (React 19, CodeQL 4, setup-node 7…) se dejan
+      # abiertos para revisarlos a mano.
+      - name: ⏳ Esperar los checks y fusionar (minor y patch)
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Al abrirse el PR los checks tardan unos segundos en registrarse.
+          head_sha=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
+          for _ in $(seq 1 60); do
+            total=$(gh api "repos/$REPO/commits/$head_sha/check-runs" --jq .total_count)
+            [ "$total" -gt 0 ] && break
+            sleep 10
+          done
+
+          # --watch espera a que terminen todos; sale con error si alguno falla,
+          # así que el merge solo ocurre cuando están los 6 en verde.
+          gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --fail-fast --interval 20
+
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch

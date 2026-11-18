@@ -69,9 +69,11 @@ spec:
             - name: SPRING_PROFILES_ACTIVE
               value: prod
 
-            # El esquema se valida; nunca se modifica automáticamente en producción.
+            # TEMPORAL: vuelve al comportamiento anterior (Hibernate crea lo que
+            # falte, incluida la tabla `Cita-Servicio`). Cuando la migración esté
+            # aplicada, cambiar a "validate" otra vez.
             - name: SPRING_JPA_HIBERNATE_DDL_AUTO
-              value: validate
+              value: update
 
             - name: JAVA_TOOL_OPTIONS
               value: >-
