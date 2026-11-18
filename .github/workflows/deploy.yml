@@ -98,6 +98,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Sin checkout el workspace del runner está vacío y el scp de K8s/ falla.
+      - name: Checkout código
+        uses: actions/checkout@v4
+
       - name: Convertir owner a minúsculas
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
@@ -115,6 +119,8 @@ jobs:
 
       - name: Copiar manifiestos de Kubernetes
         run: |
+          ssh -i ~/.ssh/Dev-Server.pem \
+            "${{ secrets.SSH_HOST_NAME }}@${{ secrets.SSH_IP }}" "mkdir -p ~/K8s"
           scp -i ~/.ssh/Dev-Server.pem \
             K8s/mariadb-deployment.yml \
             K8s/backend-deployment.yml \
