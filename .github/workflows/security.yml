@@ -24,7 +24,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 🔎 Escanear repositorio con Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        # El tag publicado lleva prefijo "v": sin él la acción no se puede resolver.
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -36,7 +37,7 @@ jobs:
 
       - name: 📋 Reporte SARIF
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: .

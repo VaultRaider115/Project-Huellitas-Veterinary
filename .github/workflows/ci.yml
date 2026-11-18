@@ -31,7 +31,23 @@ jobs:
       - name: 📥 Checkout del código
         uses: actions/checkout@v4
 
+      # La acción exige el Dependency Graph del repositorio. Si está desactivado
+      # no puede comparar el diff, así que se omite con un aviso en vez de romper
+      # el PR: Trivy (security.yml) sigue bloqueando CVEs HIGH/CRITICAL.
+      - name: 🔍 Comprobar Dependency Graph
+        id: graph
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/dependency-graph/sbom" >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Dependency graph desactivado::Actívalo en Settings → Code security and analysis → Dependency graph."
+          fi
+
       - name: 🛡️ Bloquear vulnerabilidades altas o críticas
+        if: steps.graph.outputs.available == 'true'
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
