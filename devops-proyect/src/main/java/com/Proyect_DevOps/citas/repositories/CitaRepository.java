@@ -1,6 +1,7 @@
 package com.Proyect_DevOps.citas.repositories;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -78,4 +79,18 @@ public interface CitaRepository extends JpaRepository<CitaModel, Integer>{
      * @return {@code true} si tiene citas asignadas, {@code false} de lo contrario.
      */
     boolean existsByUsuarioVeterinario_IdUsuario(int idUsuario);
+
+    /**
+     * Verifica si un veterinario ya tiene otra cita activa en la misma fecha y hora.
+     * Se usa para impedir dobles reservas al asignar un veterinario desde el módulo gestor.
+     *
+     * @param idUsuario Identificador del veterinario.
+     * @param fecha Fecha de la cita.
+     * @param entradaAgendada Hora de inicio.
+     * @param estados Estados considerados activos (por ejemplo 1 y 2).
+     * @param idCita Identificador de la cita que se está actualizando.
+     * @return {@code true} si existe un conflicto de horario.
+     */
+    boolean existsByUsuarioVeterinario_IdUsuarioAndFechaAndEntradaAgendadaAndEstadoCitaInAndIdCitaNot(
+        int idUsuario, LocalDate fecha, LocalTime entradaAgendada, List<Integer> estados, int idCita);
 }

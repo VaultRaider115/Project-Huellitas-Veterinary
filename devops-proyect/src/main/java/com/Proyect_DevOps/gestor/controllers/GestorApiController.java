@@ -28,6 +28,8 @@ import com.Proyect_DevOps.gestor.dtos.SucursalGestorDTO;
 import com.Proyect_DevOps.gestor.dtos.UsuarioGestorDTO;
 import com.Proyect_DevOps.gestor.services.GestorApiService;
 
+import jakarta.validation.Valid;
+
 /**
  * Controlador REST para el módulo exclusivo del Gestor de sucursal (/gestor/{correo}/...).
  *
@@ -98,7 +100,7 @@ public class GestorApiController {
     public ResponseEntity<UsuarioGestorDTO> crearVeterinario(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("correo") String correo,
-            @RequestBody GuardarVeterinarioDTO dto) {
+            @Valid @RequestBody GuardarVeterinarioDTO dto) {
         gestorApiService.validarGestor(jwt, correo);
         UsuarioGestorDTO creado = gestorApiService.crearVeterinario(correo, dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(creado);
@@ -112,7 +114,7 @@ public class GestorApiController {
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("correo") String correo,
             @PathVariable("idUsuario") int idUsuario,
-            @RequestBody GuardarVeterinarioDTO dto) {
+            @Valid @RequestBody GuardarVeterinarioDTO dto) {
         gestorApiService.validarGestor(jwt, correo);
         gestorApiService.actualizarVeterinario(correo, idUsuario, dto);
         return ResponseEntity.noContent().build();

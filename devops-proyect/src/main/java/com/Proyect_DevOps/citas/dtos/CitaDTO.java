@@ -3,6 +3,15 @@ package com.Proyect_DevOps.citas.dtos;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+
 /**
  * Objeto de transferencia de datos (DTO) para la entidad Cita médica.
  * Facilita el intercambio de información desacoplada entre clientes web y el servicio de citas.
@@ -20,11 +29,11 @@ import java.time.LocalTime;
  */
 public record CitaDTO(
     int idCita,
-    String nombreVeterinario,
-    String correoCliente,
-    int idMascota,
-    LocalDate fecha,
-    LocalTime entradaAgendada,
+    @Size(max = 150) String nombreVeterinario,
+    @NotBlank @Email @Size(max = 254) String correoCliente,
+    @Positive int idMascota,
+    @NotNull @FutureOrPresent LocalDate fecha,
+    @NotNull LocalTime entradaAgendada,
     LocalTime horaSalida,
-    int estadoCita) {
+    @Min(1) @Max(4) int estadoCita) {
 }

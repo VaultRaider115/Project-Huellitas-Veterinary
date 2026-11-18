@@ -1,7 +1,9 @@
 package com.Proyect_DevOps.users.controllers;
 
+import java.util.Locale;
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,9 +17,12 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.Authentication;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.Proyect_DevOps.bitacora.services.BitacoraService;
 import com.Proyect_DevOps.common.controllers.GenericController;
+import com.Proyect_DevOps.common.security.AttemptLimitService;
 import com.Proyect_DevOps.common.security.ResourceAccessPolicy;
 import com.Proyect_DevOps.common.security.TurnstileVerifier;
 import com.Proyect_DevOps.users.models.UsuarioModel;
@@ -36,6 +41,8 @@ import com.Proyect_DevOps.utilities.JWTUtil;
 @RequestMapping("/usuario")
 public class UsuarioController extends GenericController<UsuarioModel, Integer, UsuarioService> {
 
+    private static final Logger log = LoggerFactory.getLogger(UsuarioController.class);
+
     /**
      * Utilidad para la emisión y codificación de tokens JWT.
      */
@@ -46,6 +53,7 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
      */
     private final BitacoraService bitacoraService;
     private final TurnstileVerifier turnstileVerifier;
+    private final AttemptLimitService attemptLimitService;
 
 
     /**
@@ -54,14 +62,17 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
      * @param jwtUtil Utilidad de generación de tokens JWT.
      * @param bitacoraService Servicio opcional para registro de eventos en la bitácora.
      * @param turnstileVerifier Valida el CAPTCHA antes de procesar las credenciales.
+     * @param attemptLimitService Limita los intentos fallidos por cuenta.
      */
     public UsuarioController(
             JWTUtil jwtUtil,
             @Autowired(required = false) BitacoraService bitacoraService,
-            TurnstileVerifier turnstileVerifier) {
+            TurnstileVerifier turnstileVerifier,
+            AttemptLimitService attemptLimitService) {
         this.jwtUtil = jwtUtil;
         this.bitacoraService = bitacoraService;
         this.turnstileVerifier = turnstileVerifier;
+        this.attemptLimitService = attemptLimitService;
     }
 
     /**
@@ -76,6 +87,9 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
      */
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> credenciales, HttpServletRequest request) {
+        if (credenciales == null) {
+            return ResponseEntity.badRequest().body(Map.of("login", false));
+        }
         String correo = credenciales.get("correo");
         String contrasena = credenciales.get("contrasena");
         String captchaToken = credenciales.get("captchaToken");
@@ -83,7 +97,20 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
             contrasena = credenciales.get("contraseña");
         }
         String ip = request != null ? request.getRemoteAddr() : "Desconocida";
+        String attemptKey = correo == null || correo.isBlank()
+            ? null
+            : "login:" + correo.trim().toLowerCase(Locale.ROOT);
+
+        if (correo != null && correo.length() > 254) {
+            return ResponseEntity.badRequest().body(Map.of("login", false));
+        }
+
+        if (contrasena != null && contrasena.length() > 128) {
+            return ResponseEntity.badRequest().body(Map.of("login", false));
+        }
+
         if (!turnstileVerifier.verify(captchaToken)) {
+            log.warn("security_event=login_failed reason=captcha remoteAddr={}", ip);
             if (bitacoraService != null) {
                 bitacoraService.registrarAccion(
                     correo != null ? correo : "Anónimo",
@@ -96,12 +123,34 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
             }
             return ResponseEntity.badRequest().body(Map.of("login", false));
         }
+
+        if (attemptKey != null && attemptLimitService.isBlocked(attemptKey)) {
+            log.warn("security_event=login_blocked remoteAddr={}", ip);
+            if (bitacoraService != null) {
+                bitacoraService.registrarAccion(
+                    correo,
+                    "Desconocido",
+                    "LOGIN_BLOQUEADO",
+                    "Autenticación",
+                    "Cuenta bloqueada temporalmente por intentos fallidos.",
+                    ip
+                );
+            }
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(attemptLimitService.retryAfterSeconds(attemptKey)))
+                .body(Map.of("login", false, "bloqueado", true));
+        }
+
         try {
             if ((correo != null && contrasena != null) && (!correo.isBlank() && !contrasena.isBlank())) {
                 UsuarioModel usuario = service.validacionDeLogin(correo, contrasena, 0);
+                if (attemptKey != null) {
+                    attemptLimitService.reset(attemptKey);
+                }
                 if (!usuario.isMFANeeded()) {
                     String rolNombre = usuario.getRol() != null ? usuario.getRol().getNombre() : "Sin rol";
                     int rolId = usuario.getRol() != null ? usuario.getRol().getIdRol() : 0;
+                    log.info("security_event=login_success role={} remoteAddr={}", rolNombre, ip);
 
                     if (bitacoraService != null) {
                         bitacoraService.registrarAccion(
@@ -121,6 +170,10 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
                     return ResponseEntity.ok(Map.of("login", false, "mfaneed", true, "temToken", jwtUtil.generarTokenTemp(correo, idRol, nombreRol)));
                 }
             } else {
+                if (attemptKey != null) {
+                    attemptLimitService.recordFailure(attemptKey);
+                }
+                log.warn("security_event=login_failed reason=incomplete_fields remoteAddr={}", ip);
                 if (bitacoraService != null) {
                     bitacoraService.registrarAccion(
                         correo != null ? correo : "Anónimo",
@@ -134,6 +187,10 @@ public class UsuarioController extends GenericController<UsuarioModel, Integer, 
                 return ResponseEntity.badRequest().body(Map.of("login", false));
             }
         } catch (IllegalArgumentException e) {
+            if (attemptKey != null) {
+                attemptLimitService.recordFailure(attemptKey);
+            }
+            log.warn("security_event=login_failed reason=invalid_credentials remoteAddr={}", ip);
             if (bitacoraService != null) {
                 bitacoraService.registrarAccion(
                     correo != null ? correo : "Anónimo",

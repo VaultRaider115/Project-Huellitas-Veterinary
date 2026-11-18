@@ -2,6 +2,7 @@ package com.Proyect_DevOps.bitacora.services;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -26,6 +27,16 @@ public class BitacoraService extends GenericServiceImpl<BitacoraModel, Integer, 
      * Longitud máxima permitida para el campo de detalle antes del truncamiento.
      */
     private static final int MAX_DETALLE_LEN = 990;
+    private static final int MAX_USUARIO_LEN = 254;
+    private static final int MAX_CAMPO_LEN = 100;
+    private static final int MAX_IP_LEN = 45;
+
+    /** Caracteres de control que permiten inyectar líneas falsas en los logs. */
+    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}&&[^\\t]]");
+
+    /** Redacta valores sensibles que podrían llegar en un mensaje de error. */
+    private static final Pattern SENSITIVE_VALUES = Pattern.compile(
+        "(?i)(password|contrasena|contraseña|token|secret|authorization|api[_-]?key)\\s*[=:]\\s*[^\\s|,;]+");
 
     /**
      * {@inheritDoc}
@@ -50,11 +61,11 @@ public class BitacoraService extends GenericServiceImpl<BitacoraModel, Integer, 
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public BitacoraModel registrarAccion(String usuario, String rol, String accion, String modulo, String detalle, String ip) {
-        String cleanUsuario = (usuario != null && !usuario.isBlank()) ? usuario : "Anónimo";
-        String cleanRol = (rol != null && !rol.isBlank()) ? rol : "Desconocido";
-        String cleanAccion = (accion != null && !accion.isBlank()) ? accion : "ACCION";
-        String cleanModulo = (modulo != null && !modulo.isBlank()) ? modulo : "General";
-        String cleanIp = (ip != null && !ip.isBlank()) ? ip : "Desconocida";
+        String cleanUsuario = limpiar(usuario, MAX_USUARIO_LEN, "Anónimo");
+        String cleanRol = limpiar(rol, MAX_CAMPO_LEN, "Desconocido");
+        String cleanAccion = limpiar(accion, MAX_CAMPO_LEN, "ACCION");
+        String cleanModulo = limpiar(modulo, MAX_CAMPO_LEN, "General");
+        String cleanIp = limpiar(ip, MAX_IP_LEN, "Desconocida");
         String cleanDetalle = sanitizeDetalle(detalle);
 
         BitacoraModel bitacora = new BitacoraModel(cleanUsuario, cleanRol, cleanAccion, cleanModulo, cleanDetalle, cleanIp);
@@ -85,9 +96,31 @@ public class BitacoraService extends GenericServiceImpl<BitacoraModel, Integer, 
      */
     private String sanitizeDetalle(String detalle) {
         if (detalle == null) return null;
-        if (detalle.length() > MAX_DETALLE_LEN) {
-            return detalle.substring(0, MAX_DETALLE_LEN) + "...";
+        String limpio = CONTROL_CHARS.matcher(detalle).replaceAll(" ");
+        limpio = SENSITIVE_VALUES.matcher(limpio).replaceAll("$1=[REDACTADO]");
+        if (limpio.length() > MAX_DETALLE_LEN) {
+            return limpio.substring(0, MAX_DETALLE_LEN) + "...";
         }
-        return detalle;
+        return limpio;
+    }
+
+    /**
+     * Normaliza un campo corto: elimina caracteres de control, recorta espacios y
+     * limita su longitud para evitar inyección en los registros de auditoría.
+     *
+     * @param valor Valor original.
+     * @param maxLongitud Longitud máxima permitida.
+     * @param porDefecto Valor a usar si el campo está vacío.
+     * @return Valor saneado.
+     */
+    private String limpiar(String valor, int maxLongitud, String porDefecto) {
+        if (valor == null || valor.isBlank()) {
+            return porDefecto;
+        }
+        String limpio = CONTROL_CHARS.matcher(valor).replaceAll(" ").trim();
+        if (limpio.length() > maxLongitud) {
+            limpio = limpio.substring(0, maxLongitud);
+        }
+        return limpio.isBlank() ? porDefecto : limpio;
     }
 }

@@ -3,6 +3,7 @@ package com.Proyect_DevOps.users.controllers;
 import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,6 +31,7 @@ public class RolController extends GenericController<RolModel, Integer, RolServi
      * @return {@link ResponseEntity} con código 200 (OK) y mensaje de confirmación, o 401 si no pudo ser insertado.
      */
     @PostMapping("/insert")
+    @PreAuthorize("hasAuthority('TOKEN_access') and (hasAuthority('Admin') or hasAuthority('Administrador'))")
     public ResponseEntity<?> insertRol(@RequestBody String nombreRol) {
         if (service.insertRol(nombreRol)) {
             return ResponseEntity.ok(Map.of("Message", "Rol CreadoExitosamente"));

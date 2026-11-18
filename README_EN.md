@@ -99,12 +99,21 @@ The application enforces robust security standards:
 1. **Stateless JWT Authentication:** Access tokens are issued upon successful authentication (`POST /usuario/login`), cryptographically signed using HMAC-SHA256 (`HmacSHA256`) with a 15-minute expiration window.
 2. **AES-256-GCM Symmetric Encryption:** End-to-end data encryption for sensitive fields using `AES/GCM/NoPadding` with a 12-byte initialization vector (IV) and 128-bit authentication tags.
 3. **Role-Based Access Control (RBAC):** Configured in `SecurityConfig`:
-   - Endpoint `/bitacora/**` is restricted strictly to `Admin` and `Administrador` authorities.
-   - User administration endpoints are secured against unauthorized access.
-   - Generic CRUD operations are restricted to authorized staff; personal pet, appointment, treatment, and name lookups are limited to the owner or authorized staff.
-4. **HTTPS Transport:** TLS and security headers are managed by the external reverse proxy; the backend remains an internal cluster service.
-5. **Password Security:** Salted Argon2id hashing; new passwords require at least 12 characters with uppercase, lowercase, a number, and a symbol. Existing BCrypt hashes are migrated at login.
-6. **Anti-bot protection:** Cloudflare Turnstile is verified by the backend before credential lookup. The API checks success, an allowed hostname, and the `login` action; CAPTCHA is mandatory in production and fails closed if Cloudflare is unavailable.
+   - Endpoint `/bitacora/**` is restricted strictly to `Admin` and `Administrador` authorities and is read-only.
+   - User administration endpoints and generic CRUD operations are restricted strictly to `Admin` and `Administrador`.
+   - Managers and veterinarians use their own scoped endpoints (`/gestor/**`, `/veterinario/**`); clients can only access their own resources.
+4. **HTTPS:** TLS and security headers are handled at the reverse proxy and nginx, which overwrites `X-Forwarded-For` and `X-Real-IP` so client-supplied headers are never trusted.
+5. **Password protection:** Argon2id hashing with a random salt; new passwords require 12 characters, uppercase, lowercase, number, and symbol. Legacy BCrypt hashes are migrated progressively at login.
+6. **Anti-bot protection:** Cloudflare Turnstile is validated by the backend before checking credentials. The API verifies success, an allowed hostname, and the `login` action; in production CAPTCHA is mandatory and fails closed.
+7. **Per-account attempt limit:** Login and MFA verification are temporarily locked after 5 failures (configurable) and return `429` with `Retry-After`. Multi-replica deployments should use a shared store such as Redis.
+8. **Safe errors:** Internal details are logged only on the server; clients receive generic messages and Spring hides messages, stack traces, and validation details.
+9. **Security headers:** CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and HSTS are applied by nginx and the API.
+10. **Audit integrity:** The audit log is `@Immutable`, and the database rejects `UPDATE` and `DELETE` through append-only triggers (`scripts/hardening.sql`).
+11. **Protected backups:** Dumps are AES-256 encrypted (GPG), paired with a SHA-256 checksum, and the plaintext dump is deleted afterwards.
+12. **Supply chain:** Dependabot, `npm audit`, CycloneDX SBOMs in CI, immutable SHA image tags, and `kubectl set image` deployments. The `Security Scan` workflow runs Trivy on dependencies, secrets, and configuration for every PR, every push to `main`, and weekly.
+13. **Hardened configuration (A05):** no default credentials, secrets required per environment, `ddl-auto=validate` in production, Actuator limited to health, errors without details, explicit CORS, non-privileged containers, and `Cache-Control: no-store` on API responses.
+14. **Logging and monitoring (A09):** `security_event=...` records on stdout for login, lockout, and MFA events; persistent audit log with secret redaction and newline sanitization; Kubernetes health probes and read-only audit access.
+15. **SSRF (A10):** the only outbound backend request targets the fixed URL `https://challenges.cloudflare.com/turnstile/v0/siteverify`; no user-controlled URL, host, or path is accepted.
 
 ---
 
@@ -205,8 +214,10 @@ cd devops-proyect
 ./mvnw test-compile
 
 # Start the Spring Boot server (port 8080 by default)
-./mvnw spring-boot:run
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 ```
+
+The `prod` profile uses `spring.jpa.hibernate.ddl-auto=validate` and requires all environment variables. Schema changes must be applied in a controlled migration before deployment; the application does not alter tables in production.
 
 ---
 

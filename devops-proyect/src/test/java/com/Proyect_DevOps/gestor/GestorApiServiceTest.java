@@ -253,6 +253,65 @@ public class GestorApiServiceTest {
     }
 
     @Test
+    void testCrearVeterinarioRechazaContrasenaDebil() {
+        String correoGestor = "gestor@huellitas.mx";
+        UsuarioModel user = new UsuarioModel();
+        GestorModel gestor = new GestorModel("RFC", 1000, user);
+        SucursalModel sucursal = new SucursalModel(null, gestor);
+
+        when(usuarioRepository.findByCorreoHMAC(HMACUtil.GenerarHuella(correoGestor))).thenReturn(Optional.of(user));
+        when(gestorRepository.findByUsuario(user)).thenReturn(Optional.of(gestor));
+        when(sucursalRepository.findByGestor(gestor)).thenReturn(Optional.of(sucursal));
+        when(usuarioRepository.existsByCorreoHMAC(HMACUtil.GenerarHuella("vet@huellitas.mx"))).thenReturn(false);
+
+        GuardarVeterinarioDTO dto = new GuardarVeterinarioDTO("Luis", "Mora", null, "vet@huellitas.mx", "secret123");
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+            service.crearVeterinario(correoGestor, dto)
+        );
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+    }
+
+    @Test
+    void testActualizarCitaRechazaDobleReservaDeVeterinario() {
+        String correoGestor = "gestor@huellitas.mx";
+        UsuarioModel user = new UsuarioModel();
+        GestorModel gestor = new GestorModel("RFC", 1000, user);
+        SucursalModel sucursal = new SucursalModel(null, gestor);
+        sucursal.setIdSucursal(1);
+
+        UsuarioModel vet = new UsuarioModel();
+        vet.setIdUsuario(7);
+        vet.setRol(new RolModel("Veterinario"));
+        vet.getRol().setIdRol(4);
+        vet.setSucursal(sucursal);
+
+        MascotaModel mascota = new MascotaModel();
+        mascota.setSucursal(sucursal);
+
+        CitaModel cita = new CitaModel();
+        cita.setIdCita(10);
+        cita.setMascotaModel(mascota);
+        cita.setUsuarioVeterinario(vet);
+        cita.setFecha(LocalDate.of(2026, 12, 1));
+        cita.setEntradaAgendada(LocalTime.of(10, 0));
+        cita.setEstadoCita(1);
+
+        when(usuarioRepository.findByCorreoHMAC(any())).thenReturn(Optional.of(user));
+        when(gestorRepository.findByUsuario(user)).thenReturn(Optional.of(gestor));
+        when(sucursalRepository.findByGestor(gestor)).thenReturn(Optional.of(sucursal));
+        when(citaRepository.findById(10)).thenReturn(Optional.of(cita));
+        when(citaRepository.existsByUsuarioVeterinario_IdUsuarioAndFechaAndEntradaAgendadaAndEstadoCitaInAndIdCitaNot(
+            7, LocalDate.of(2026, 12, 1), LocalTime.of(10, 0), List.of(1, 2), 10))
+            .thenReturn(true);
+
+        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () ->
+            service.actualizarCita(correoGestor, 10, Map.of())
+        );
+        assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    }
+
+    @Test
     void testEliminarVeterinarioConCitasLanza409() {
         String correoGestor = "gestor@huellitas.mx";
         UsuarioModel user = new UsuarioModel();

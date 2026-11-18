@@ -18,11 +18,32 @@ public final class ResourceAccessPolicy {
         "VETERINARIO"
     );
 
+    private static final Set<String> ADMIN_AUTHORITIES = Set.of(
+        "Admin",
+        "Administrador"
+    );
+
+    private static final String ACCESS_AUTHORITY = "TOKEN_access";
+
     private ResourceAccessPolicy() {
     }
 
-    public static boolean isStaff(Authentication authentication) {
+    private static boolean hasAccessToken(Authentication authentication) {
         return authentication != null
+            && authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(ACCESS_AUTHORITY::equals);
+    }
+
+    public static boolean isAdmin(Authentication authentication) {
+        return hasAccessToken(authentication)
+            && authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(ADMIN_AUTHORITIES::contains);
+    }
+
+    public static boolean isStaff(Authentication authentication) {
+        return hasAccessToken(authentication)
             && authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(STAFF_AUTHORITIES::contains);

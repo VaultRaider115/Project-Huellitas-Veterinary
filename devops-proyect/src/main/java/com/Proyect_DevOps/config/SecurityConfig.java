@@ -39,6 +39,8 @@ import org.springframework.security.oauth2.server.resource.web.access.BearerToke
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.access.expression.WebExpressionAuthorizationManager;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.security.config.Customizer;
 
 import com.Proyect_DevOps.Security.Filter.RateLimitFilter;
@@ -151,6 +153,22 @@ public class SecurityConfig {
     http
         .csrf(csrf -> csrf.disable())
         .cors(Customizer.withDefaults())
+        .headers(headers -> headers
+            .contentTypeOptions(Customizer.withDefaults())
+            .frameOptions(frame -> frame.deny())
+            .referrerPolicy(referrer -> referrer
+                .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+            .httpStrictTransportSecurity(hsts -> hsts
+                .includeSubDomains(true)
+                .maxAgeInSeconds(31_536_000))
+            .contentSecurityPolicy(csp -> csp
+                .policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'"))
+            .addHeaderWriter(new StaticHeadersWriter("Cache-Control", "no-store"))
+            .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Opener-Policy", "same-origin"))
+            .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Resource-Policy", "same-origin"))
+            .addHeaderWriter(new StaticHeadersWriter("X-Permitted-Cross-Domain-Policies", "none"))
+            .permissionsPolicy(permissions -> permissions
+                .policy("geolocation=(), microphone=(), camera=()")))
         .sessionManagement(session -> session
             .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
@@ -171,6 +189,9 @@ public class SecurityConfig {
             }))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers(HttpMethod.POST, "/usuario/login")
+            .permitAll()
+
+            .requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**")
             .permitAll()
 
             .requestMatchers("/usuario/Rol")
@@ -251,13 +272,16 @@ public class SecurityConfig {
         throw new IllegalArgumentException("No se pudo convertir el JWT");
       }
 
-      List<GrantedAuthority> autoridades = new ArrayList<>(auth.getAuthorities());
-
       String purpose = jwt.getClaimAsString("purpose");
+      List<GrantedAuthority> autoridades = new ArrayList<>();
 
       if ("access".equals(purpose)) {
+        // Un token de acceso conserva los roles del usuario.
+        autoridades.addAll(auth.getAuthorities());
         autoridades.add(new SimpleGrantedAuthority("TOKEN_access"));
       } else if ("mfa".equals(purpose)) {
+        // El token temporal solo sirve para verificar el segundo factor:
+        // no debe conceder ningún rol antes de completar el MFA.
         autoridades.add(new SimpleGrantedAuthority("TOKEN_mfa"));
       }
 

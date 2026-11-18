@@ -1,4 +1,3 @@
-
 name: Deploy
 
 on:
@@ -47,9 +46,14 @@ jobs:
         with:
           context: ./devops-frontend
           push: true
-          tags: ghcr.io/${{ env.OWNER_LC }}/devops-frontend:latest
+          # Etiqueta inmutable por commit además de latest para desarrollo.
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/devops-frontend:${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LC }}/devops-frontend:latest
           build-args: |
             VITE_TURNSTILE_SITE_KEY=${{ vars.VITE_TURNSTILE_SITE_KEY }}
+          provenance: true
+          sbom: true
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -81,7 +85,11 @@ jobs:
         with:
           context: ./devops-proyect
           push: true
-          tags: ghcr.io/${{ env.OWNER_LC }}/devops-proyect:latest
+          tags: |
+            ghcr.io/${{ env.OWNER_LC }}/devops-proyect:${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LC }}/devops-proyect:latest
+          provenance: true
+          sbom: true
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -90,6 +98,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Convertir owner a minúsculas
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
       - name: Configurar Tailscale
         uses: tailscale/github-action@v3
         with:
@@ -102,6 +113,14 @@ jobs:
           chmod 400 ~/.ssh/Dev-Server.pem
           ssh-keyscan "${{ secrets.SSH_IP }}" >> ~/.ssh/known_hosts
 
+      - name: Copiar manifiestos de Kubernetes
+        run: |
+          scp -i ~/.ssh/Dev-Server.pem \
+            K8s/mariadb-deployment.yml \
+            K8s/backend-deployment.yml \
+            K8s/frontend-deployment.yml \
+            "${{ secrets.SSH_HOST_NAME }}@${{ secrets.SSH_IP }}:~/K8s/"
+
       - name: Aplicar configuración de Kubernetes
         run: |
           ssh -i ~/.ssh/Dev-Server.pem \
@@ -113,13 +132,15 @@ jobs:
               kubectl apply -f frontend-deployment.yml
             "
 
-      - name: Reiniciar aplicaciones
+      - name: Desplegar imágenes inmutables por SHA
         run: |
           ssh -i ~/.ssh/Dev-Server.pem \
             "${{ secrets.SSH_HOST_NAME }}@${{ secrets.SSH_IP }}" "
               export KUBECONFIG=/home/iron/.kube/config &&
-              kubectl rollout restart deployment/backend &&
-              kubectl rollout restart deployment/frontend
+              kubectl set image deployment/backend \
+                backend=ghcr.io/${{ env.OWNER_LC }}/devops-proyect:${{ github.sha }} &&
+              kubectl set image deployment/frontend \
+                frontend=ghcr.io/${{ env.OWNER_LC }}/devops-frontend:${{ github.sha }}
             "
 
       - name: Esperar aplicaciones

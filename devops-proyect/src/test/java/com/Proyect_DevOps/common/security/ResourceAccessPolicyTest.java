@@ -2,7 +2,9 @@ package com.Proyect_DevOps.common.security;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -41,6 +43,22 @@ class ResourceAccessPolicyTest {
         assertDoesNotThrow(() ->
             ResourceAccessPolicy.requireUserOrStaff("cliente@example.com", authentication)
         );
+    }
+
+    @Test
+    void identifiesAdminAuthoritiesOnly() {
+        assertTrue(ResourceAccessPolicy.isAdmin(authentication("admin@example.com", "TOKEN_access", "Admin")));
+        assertTrue(ResourceAccessPolicy.isAdmin(authentication("admin@example.com", "TOKEN_access", "Administrador")));
+        assertFalse(ResourceAccessPolicy.isAdmin(authentication("gestor@example.com", "TOKEN_access", "Gestor")));
+        assertFalse(ResourceAccessPolicy.isAdmin(authentication("vet@example.com", "TOKEN_access", "Veterinario")));
+    }
+
+    @Test
+    void temporaryMfaTokenIsNotStaffEvenWithAdminRole() {
+        Authentication mfaToken = authentication("admin@example.com", "TOKEN_mfa", "Admin");
+
+        assertFalse(ResourceAccessPolicy.isAdmin(mfaToken));
+        assertFalse(ResourceAccessPolicy.isStaff(mfaToken));
     }
 
     private Authentication authentication(String name, String... authorities) {

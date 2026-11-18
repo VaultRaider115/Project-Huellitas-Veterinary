@@ -1,6 +1,9 @@
 package com.Proyect_DevOps.users.models;
 
 import com.Proyect_DevOps.sucursales.models.SucursalModel;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -10,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.Size;
 
 /**
  * Entidad JPA que representa a un usuario del sistema (personal médico, administrativo o cliente).
@@ -33,27 +37,33 @@ public class UsuarioModel {
     /**
      * Nombre de pila del usuario.
      */
+    @Size(max = 100)
     private String nombre;
 
     /**
      * Primer apellido (apellido paterno).
      */
+    @Size(max = 100)
     private String paterno;
 
     /**
      * Segundo apellido (apellido materno).
      */
+    @Size(max = 100)
     private String materno;
 
     /**
      * Correo electrónico cifrado simétricamente con AES-256 en reposo.
      */
+    @Size(max = 254)
     @Column(nullable = false, unique = true)
     private String correo;
 
     /**
      * Huella digital criptográfica (HMAC-SHA256) del correo electrónico para búsquedas exactas e indexación.
+     * Nunca se serializa hacia los clientes.
      */
+    @JsonIgnore
     @Column(nullable = false, unique = true)
     private String correoHMAC;
 
@@ -63,15 +73,21 @@ public class UsuarioModel {
     @Column(nullable = false)
     private boolean mfaneed;
 
+    @JsonIgnore
     @Column(nullable=true)
     private String secretoMFA;
 
+    @JsonIgnore
     @Column(nullable=true)
     private String secretoPendienteMFA;
 
     /**
      * Contraseña protegida mediante algoritmo de derivación de claves Argon2id.
+     * Solo se acepta en peticiones de escritura; nunca se devuelve en respuestas.
      */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @JsonAlias("contrasena")
+    @Size(max = 128)
     @Column(nullable = false)
     private String contraseña;
 

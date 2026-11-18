@@ -12,6 +12,7 @@ sudo systemctl start mariadb
 sudo mariadb -e "
 DROP DATABASE IF EXISTS huellitas_db;
 DROP USER IF EXISTS 'Admin'@'localhost';
+DROP USER IF EXISTS 'huellitas'@'localhost';
 FLUSH PRIVILEGES;
 "
 

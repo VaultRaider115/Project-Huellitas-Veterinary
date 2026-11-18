@@ -17,6 +17,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import com.Proyect_DevOps.bitacora.services.BitacoraService;
 import com.Proyect_DevOps.common.controllers.GenericController;
+import com.Proyect_DevOps.common.security.AttemptLimitService;
 import com.Proyect_DevOps.common.security.TurnstileVerifier;
 import com.Proyect_DevOps.users.controllers.UsuarioController;
 import com.Proyect_DevOps.users.services.UsuarioService;
@@ -30,7 +31,8 @@ class UsuarioControllerCaptchaTest {
         when(verifier.verify("invalid-token")).thenReturn(false);
         BitacoraService bitacora = mock(BitacoraService.class);
         UsuarioService usuarioService = mock(UsuarioService.class);
-        UsuarioController controller = new UsuarioController(mock(JWTUtil.class), bitacora, verifier);
+        UsuarioController controller = new UsuarioController(
+                mock(JWTUtil.class), bitacora, verifier, mock(AttemptLimitService.class));
         setService(controller, usuarioService);
 
         var response = controller.login(

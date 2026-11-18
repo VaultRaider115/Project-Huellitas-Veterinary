@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.Proyect_DevOps.citas.models.CitaModel;
 import com.Proyect_DevOps.citas.repositories.CitaRepository;
+import com.Proyect_DevOps.common.security.PasswordPolicy;
 import com.Proyect_DevOps.consultaMedica.models.ConsultaMedicaModel;
 import com.Proyect_DevOps.consultaMedica.models.TratamientoModel;
 import com.Proyect_DevOps.consultaMedica.repositories.ConsultaMedicaRepository;
@@ -281,6 +282,19 @@ public class GestorApiService {
             cita.setEstadoCita(nuevoEstado);
         }
 
+        if ((cita.getEstadoCita() == 1 || cita.getEstadoCita() == 2)
+                && cita.getUsuarioVeterinario() != null
+                && cita.getFecha() != null
+                && cita.getEntradaAgendada() != null
+                && citaRepository.existsByUsuarioVeterinario_IdUsuarioAndFechaAndEntradaAgendadaAndEstadoCitaInAndIdCitaNot(
+                    cita.getUsuarioVeterinario().getIdUsuario(),
+                    cita.getFecha(),
+                    cita.getEntradaAgendada(),
+                    List.of(1, 2),
+                    idCita)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "El veterinario ya tiene una cita en ese horario");
+        }
+
         citaRepository.save(cita);
     }
 
@@ -329,6 +343,8 @@ public class GestorApiService {
         if (usuarioRepository.existsByCorreoHMAC(hmac)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "El correo electrónico ya se encuentra registrado");
         }
+
+        PasswordPolicy.requireStrong(dto.getContrasena());
 
         RolModel rolVet = rolRepository.findById(4).orElseGet(() -> {
             RolModel nuevo = new RolModel("Veterinario");
@@ -391,6 +407,7 @@ public class GestorApiService {
         }
 
         if (dto.getContrasena() != null && !dto.getContrasena().isBlank()) {
+            PasswordPolicy.requireStrong(dto.getContrasena());
             vet.setContraseña(argon2PasswordEncoder.encode(dto.getContrasena()));
         }
 
