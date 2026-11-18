@@ -7,6 +7,8 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+**/.env
+!**/.env.example
 
 devops-frontend/node_modules/
 devops-frontend/dist/
@@ -34,7 +36,6 @@ devops-proyect/*.ntvs*
 devops-proyect/*.njsproj
 devops-proyect/*.sln
 devops-proyect/*.sw?
-devops-proyect/src/main/resources/application.properties
 devops-proyect/.classpath
 devops-proyect/.factorypath
 devops-proyect/.project

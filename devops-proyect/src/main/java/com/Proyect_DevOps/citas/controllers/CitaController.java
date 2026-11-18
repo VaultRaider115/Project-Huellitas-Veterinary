@@ -20,6 +20,8 @@ import com.Proyect_DevOps.citas.services.CitaService;
 import com.Proyect_DevOps.common.controllers.GenericController;
 import com.Proyect_DevOps.common.security.ResourceAccessPolicy;
 
+import jakarta.validation.Valid;
+
 /**
  * Controlador REST para la gestión de citas veterinarias.
  * Expone endpoints para contar citas activas, listar citas por usuario o por mascota,
@@ -79,7 +81,7 @@ public class CitaController extends GenericController<CitaModel, Integer, CitaSe
      * @return {@link CitaDTO} con la información de la cita persistida.
      */
     @PostMapping("/crear")
-    public CitaDTO crearCita(@RequestBody CitaDTO citaDTO, Authentication authentication) {
+    public CitaDTO crearCita(@Valid @RequestBody CitaDTO citaDTO, Authentication authentication) {
         if (citaDTO == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Datos de la cita requeridos");
         }
@@ -98,7 +100,7 @@ public class CitaController extends GenericController<CitaModel, Integer, CitaSe
         boolean respuesta = service.cancelarCita(
             idCita,
             authentication.getName(),
-            ResourceAccessPolicy.isStaff(authentication)
+            ResourceAccessPolicy.isAdmin(authentication)
         );
         return ResponseEntity.ok(respuesta);
     }

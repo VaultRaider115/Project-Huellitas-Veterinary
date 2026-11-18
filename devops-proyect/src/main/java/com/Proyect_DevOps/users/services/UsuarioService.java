@@ -5,11 +5,13 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.Proyect_DevOps.MFA.MFAService;
 import com.Proyect_DevOps.common.security.PasswordPolicy;
@@ -21,6 +23,9 @@ import com.Proyect_DevOps.users.repositories.RolRepository;
 import com.Proyect_DevOps.users.repositories.UsuarioRepository;
 import com.Proyect_DevOps.utilities.AESUtil;
 import com.Proyect_DevOps.utilities.HMACUtil;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 
 /**
  * Servicio de negocio para la gestión integral de usuarios.
@@ -56,6 +61,15 @@ public class UsuarioService extends GenericServiceImpl<UsuarioModel, Integer, Us
 
     @Autowired
     private MFAService service;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    /**
+     * Hash de referencia usado para igualar el tiempo de respuesta del login
+     * cuando el correo no existe. Se calcula una única vez por instancia.
+     */
+    private volatile String dummyHash;
 
     /**
      * {@inheritDoc}
@@ -123,36 +137,72 @@ public class UsuarioService extends GenericServiceImpl<UsuarioModel, Integer, Us
 
     /**
      * {@inheritDoc}
-     * Actualiza la información del usuario, recalculando cifrado y hashes si fueron modificados.
+     * Actualiza únicamente los campos enviados. Los campos omitidos (contraseña,
+     * correo, rol, sucursal, MFA) conservan su valor almacenado, de modo que una
+     * edición parcial no puede borrar credenciales ni datos cifrados.
      */
     @Override
+    @Transactional
     public Optional<UsuarioModel> update(Integer id, UsuarioModel entity) {
-        if (!repository.existsById(id)) {
+        Optional<UsuarioModel> existenteOpt = repository.findById(id);
+        if (existenteOpt.isEmpty()) {
             return Optional.empty();
         }
-        entity.setIdUsuario(id);
+
+        UsuarioModel actual = existenteOpt.get();
 
         if (entity.getCorreo() != null && !entity.getCorreo().isBlank()) {
-            entity.setCorreoHMAC(HMACUtil.GenerarHuella(entity.getCorreo()));
-            entity.setCorreo(AESUtil.encriptar(entity.getCorreo()));
+            String nuevoCorreo = entity.getCorreo().trim();
+            String nuevoHmac = HMACUtil.GenerarHuella(nuevoCorreo);
+            if (!nuevoHmac.equals(actual.getCorreoHMAC()) && repository.existsByCorreoHMAC(nuevoHmac)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "El correo ya está registrado");
+            }
+            actual.setCorreo(AESUtil.encriptar(nuevoCorreo));
+            actual.setCorreoHMAC(nuevoHmac);
         }
 
-        if (entity.getContraseña() != null && !entity.getContraseña().isBlank()) {
-            if (!entity.getContraseña().startsWith("$argon2") && !entity.getContraseña().startsWith("$2")) {
-                PasswordPolicy.requireStrong(entity.getContraseña());
-                entity.setContraseña(passwordEncoder.encode(entity.getContraseña()));
+        if (entity.getNombre() != null) {
+            actual.setNombre(entity.getNombre().trim());
+        }
+        if (entity.getPaterno() != null) {
+            actual.setPaterno(entity.getPaterno().trim());
+        }
+        if (entity.getMaterno() != null) {
+            actual.setMaterno(entity.getMaterno().trim());
+        }
+
+        String nuevaContrasena = entity.getContraseña();
+        if (nuevaContrasena != null && !nuevaContrasena.isBlank()) {
+            // Un cliente nunca debe poder inyectar un hash ya codificado.
+            if (nuevaContrasena.startsWith("$")) {
+                throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "La contraseña debe enviarse en texto plano"
+                );
             }
+            PasswordPolicy.requireStrong(nuevaContrasena);
+            actual.setContraseña(passwordEncoder.encode(nuevaContrasena));
         }
 
         if (entity.getRol() != null && entity.getRol().getIdRol() > 0) {
-            rolRepository.findById(entity.getRol().getIdRol()).ifPresent(entity::setRol);
+            RolModel rol = rolRepository.findById(entity.getRol().getIdRol())
+                .orElseThrow(() -> new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "El rol indicado no existe"));
+            actual.setRol(rol);
         }
 
         if (entity.getSucursal() != null && entity.getSucursal().getIdSucursal() > 0) {
-            sucursalRepository.findById(entity.getSucursal().getIdSucursal()).ifPresent(entity::setSucursal);
+            actual.setSucursal(sucursalRepository.findById(entity.getSucursal().getIdSucursal())
+                .orElseThrow(() -> new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "La sucursal indicada no existe")));
         }
 
-        UsuarioModel guardado = repository.save(entity);
+        // Los campos de MFA solo se modifican mediante /usuario/mfa.
+        UsuarioModel guardado = repository.save(actual);
+        // Se confirma el cambio y se separa la entidad antes de descifrar el correo
+        // para que Hibernate no vuelva a escribir el texto plano en la columna cifrada.
+        entityManager.flush();
+        entityManager.detach(guardado);
         try {
             guardado.setCorreo(AESUtil.desencriptar(guardado.getCorreo()));
         } catch (Exception e) {
@@ -230,8 +280,32 @@ public class UsuarioService extends GenericServiceImpl<UsuarioModel, Integer, Us
             }
             throw new IllegalArgumentException("Correo o Contraseña Incorrectas");
         } else {
+            // Comparación ficticia para que un usuario inexistente tarde lo mismo que
+            // uno existente con contraseña incorrecta y no se pueda enumerar cuentas.
+            if (contrasena != null && !contrasena.isBlank()) {
+                argon2PasswordEncoder.matches(contrasena, hashFicticio());
+            }
             throw new IllegalArgumentException("Correo o Contraseñas Incorrectas");
         }
+    }
+
+    /**
+     * Hash de referencia usado solo para igualar el tiempo de respuesta cuando el
+     * correo no existe. Se calcula una única vez por instancia.
+     *
+     * @return Hash Argon2id de un valor aleatorio.
+     */
+    private String hashFicticio() {
+        String hash = dummyHash;
+        if (hash == null) {
+            synchronized (this) {
+                if (dummyHash == null) {
+                    dummyHash = argon2PasswordEncoder.encode(java.util.UUID.randomUUID().toString());
+                }
+                hash = dummyHash;
+            }
+        }
+        return hash;
     }
 
     /**
@@ -293,7 +367,16 @@ public class UsuarioService extends GenericServiceImpl<UsuarioModel, Integer, Us
      *
      * @param usuario Entidad con los campos MFA actualizados.
      */
+    @Transactional
     public void actualizarMFA(UsuarioModel usuario) {
-        repository.save(usuario);
+        if (usuario == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Usuario requerido");
+        }
+        repository.actualizarCamposMFA(
+            usuario.getIdUsuario(),
+            usuario.getSecretoMFA(),
+            usuario.getSecretoPendienteMFA(),
+            usuario.isMFANeeded()
+        );
     }
 }

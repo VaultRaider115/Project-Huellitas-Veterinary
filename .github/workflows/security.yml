@@ -1,0 +1,80 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  schedule:
+    # Cada lunes a las 06:00 UTC, para detectar vulnerabilidades nuevas.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  trivy:
+    name: 🛡️ Dependencias, secretos y configuración
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Trivy resuelve los pom.xml contra Maven Central, que responde 429 a las
+      # IPs compartidas de los runners. Con ~/.m2 precargado y este flag no se
+      # hace ninguna petición al repositorio (la base de datos de CVEs sí se
+      # descarga normalmente).
+      TRIVY_OFFLINE_SCAN: 'true'
+
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@v4
+
+      - name: ☕ Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: devops-proyect/pom.xml
+
+      - name: 📦 Precargar dependencias de Maven
+        working-directory: devops-proyect
+        run: mvn -B -q dependency:resolve
+
+      - name: 🔎 Escanear repositorio con Trivy
+        # El tag de la acción lleva prefijo "v": sin él no se puede resolver.
+        # "version" se fija explícitamente porque los releases de Trivy ≤ 0.69
+        # fueron retirados de GitHub y el valor por defecto de la acción (v0.65.0)
+        # devuelve 404 al descargar el binario.
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.76.2
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+
+      - name: 📋 Reporte SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          version: v0.76.2
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '0'
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: ⬆️ Subir resultados a GitHub Security
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif

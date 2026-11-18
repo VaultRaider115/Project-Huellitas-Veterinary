@@ -1,16 +1,26 @@
 package com.Proyect_DevOps.gestor.dtos;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Size;
+
 /**
  * DTO para la creación o actualización de veterinarios por el gestor.
+ * Las restricciones de tamaño y formato se validan antes de llegar al servicio.
  *
  * @author Equipo DevOps Huellitas
  * @version 1.0
  */
 public class GuardarVeterinarioDTO {
+    @Size(max = 100)
     private String nombre;
+    @Size(max = 100)
     private String paterno;
+    @Size(max = 100)
     private String materno;
+    @Email
+    @Size(max = 254)
     private String correo;
+    @Size(min = 12, max = 128)
     private String contrasena;
 
     public GuardarVeterinarioDTO() {

@@ -98,12 +98,21 @@ El sistema implementa medidas de seguridad sólidas:
 1. **Autenticación Stateless con JWT:** Los tokens de acceso se emiten tras el login (`POST /usuario/login`), firmados criptográficamente mediante algoritmo HMAC-SHA256 (`HmacSHA256`) con tiempo de expiración de 15 minutos.
 2. **Cifrado Simétrico AES-256-GCM:** Soporte para cifrado y descifrado de datos sensibles mediante `AES/GCM/NoPadding` con vector de inicialización (IV) de 12 bytes y tags de autenticación de 128 bits.
 3. **Control de Acceso Basado en Roles (RBAC):** Restricciones automáticas en `SecurityConfig`:
-   - Endpoint `/bitacora/**` restringido exclusivamente a roles `Admin` y `Administrador`.
-   - Endpoints de administración de `/usuario` protegidos.
-   - Operaciones CRUD genéricas restringidas a administradores y personal autorizado; las consultas de mascotas, citas, tratamientos y nombres por correo solo permiten al propietario o al personal autorizado.
-4. **Transporte HTTPS:** TLS y las cabeceras de seguridad se gestionan en el proxy inverso externo; el backend permanece como servicio interno del clúster.
+   - Endpoint `/bitacora/**` restringido exclusivamente a roles `Admin` y `Administrador`, y es de solo lectura.
+   - Endpoints de administración de `/usuario` y las operaciones CRUD genéricas restringidas exclusivamente a `Admin` y `Administrador`.
+   - Gestores y veterinarios usan endpoints propios (`/gestor/**`, `/veterinario/**`) con validación de sucursal; los clientes solo acceden a sus propios recursos.
+4. **Transporte HTTPS:** TLS y las cabeceras de seguridad se gestionan en el proxy inverso y en nginx, que además sobrescribe `X-Forwarded-For` y `X-Real-IP` para no confiar en cabeceras enviadas por el cliente.
 5. **Protección de Contraseñas:** Hash Argon2id con salt aleatorio; las claves nuevas requieren 12 caracteres, mayúscula, minúscula, número y símbolo. Los hashes BCrypt existentes se migran progresivamente en el inicio de sesión.
 6. **Protección anti-bots:** Cloudflare Turnstile se valida en el backend antes de consultar credenciales. La API comprueba el éxito, un hostname de la lista permitida y la acción `login`; en producción el CAPTCHA es obligatorio y falla de forma cerrada si Cloudflare no responde.
+7. **Límite de intentos por cuenta:** El login y la verificación MFA se bloquean temporalmente tras 5 fallos (configurable) y responden `429` con `Retry-After`. En despliegues con varias réplicas se debe usar un almacén compartido (por ejemplo Redis).
+8. **Errores seguros:** `GlobalExceptionHandler` registra el detalle técnico solo en el servidor y devuelve mensajes genéricos; Spring oculta mensajes, trazas y errores de validación en las respuestas.
+9. **Cabeceras de seguridad:** CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` y HSTS se aplican en nginx y en la API.
+10. **Integridad de la auditoría:** La bitácora es `@Immutable` y la base de datos rechaza `UPDATE` y `DELETE` mediante disparadores append-only (`scripts/hardening.sql`).
+11. **Respaldos protegidos:** Los volcados se cifran con AES-256 (GPG), se acompañan de una suma SHA-256 y el archivo en claro se elimina al terminar.
+12. **Cadena de suministro:** Dependabot, `npm audit`, SBOM CycloneDX en CI, imágenes inmutables por SHA y despliegues con `kubectl set image`. El flujo `Security Scan` ejecuta Trivy sobre dependencias, secretos y configuración en cada PR, push a `main` y semanalmente.
+13. **Configuración endurecida (A05):** sin credenciales por defecto, secretos obligatorios por entorno, `ddl-auto=validate` en producción, Actuator limitado a salud, errores sin detalles, CORS explícito, contenedores sin privilegios y cabeceras `Cache-Control: no-store` en la API.
+14. **Registro y monitoreo (A09):** eventos de seguridad `security_event=...` en stdout para login, bloqueos y MFA; bitácora persistente con redacción de secretos y saneamiento de saltos de línea; sondas de salud de Kubernetes y auditoría de solo lectura.
+15. **SSRF (A10):** la única petición saliente del backend es a la URL fija `https://challenges.cloudflare.com/turnstile/v0/siteverify`; no se aceptan URL, host ni ruta controlados por el usuario.
 
 ---
 
@@ -123,6 +132,7 @@ El módulo de **Bitácora** garantiza la trazabilidad y rendición de cuentas en
   - `Detalle`: Método HTTP, URI y código de resultado (`exitoso` o error con código HTTP y mensaje).
   - `IP`: Dirección IP remota (con detección de proxies vía `X-Forwarded-For`).
 * **Transacciones Independientes (`REQUIRES_NEW`):** Los logs se confirman en su propia transacción, asegurando que los eventos de error o excepciones queden guardados aunque el controlador principal haga rollback.
+* **Solo lectura:** El controlador no expone `POST`, `PUT` ni `DELETE`. La entidad es inmutable y los disparadores `bitacora_append_only_update` / `bitacora_append_only_delete` rechazan cualquier modificación o borrado directo en la base de datos. El script `scripts/hardening.sql` los reinstala tras una restauración.
 
 ---
 
@@ -195,7 +205,7 @@ Registra todos los hostnames desde los que se servirá el login en la configurac
 
 ### 2. Backend (Spring Boot)
 
-Entra a la carpeta del backend y levanta la aplicación:
+Entra a la carpeta del backend y levanta la aplicación con el perfil local (permite crear el esquema en desarrollo):
 
 ```bash
 cd devops-proyect
@@ -204,8 +214,10 @@ cd devops-proyect
 ./mvnw test-compile
 
 # Iniciar servidor Spring Boot (puerto 8080 por defecto)
-./mvnw spring-boot:run
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 ```
+
+El perfil `prod` usa `spring.jpa.hibernate.ddl-auto=validate` y exige todas las variables de entorno. Los cambios de esquema deben aplicarse de forma controlada antes de desplegar; la aplicación no modifica tablas en producción.
 
 ---
 
@@ -265,6 +277,19 @@ pkill -f "spring-boot" 2>/dev/null
 pkill -f "node" 2>/dev/null
 pkill -f "npm" 2>/dev/null
 ```
+
+#### Respaldos cifrados
+
+```bash
+# Crear un respaldo cifrado (AES-256) con suma SHA-256
+./scripts/backup.fish
+
+# Restaurar el respaldo más reciente o uno concreto
+./scripts/restore.fish --latest
+./scripts/restore.fish ~/backups/huellitas_2026-01-01_12-00-00.sql.gpg
+```
+
+La clave de respaldo se guarda en `~/.config/huellitas/backup.key` con permisos `600`. Consérvela fuera del servidor: sin ella los respaldos no se pueden restaurar. El script de restauración verifica la suma SHA-256 antes de importar y reaplica los disparadores append-only de la bitácora.
 
 ---
 

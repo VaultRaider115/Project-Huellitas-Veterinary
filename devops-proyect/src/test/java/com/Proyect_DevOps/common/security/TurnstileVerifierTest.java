@@ -14,7 +14,7 @@ import java.time.Duration;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.web.client.RestTemplate;
 
@@ -31,8 +31,8 @@ class TurnstileVerifierTest {
     void setUp() {
         builder = mock(RestTemplateBuilder.class);
         restTemplate = mock(RestTemplate.class);
-        when(builder.setConnectTimeout(any(Duration.class))).thenReturn(builder);
-        when(builder.setReadTimeout(any(Duration.class))).thenReturn(builder);
+        when(builder.connectTimeout(any(Duration.class))).thenReturn(builder);
+        when(builder.readTimeout(any(Duration.class))).thenReturn(builder);
         when(builder.build()).thenReturn(restTemplate);
         verifier = new TurnstileVerifier(
                 builder, true, "server-secret", HOSTNAME + "," + CLOUDFLARED_HOSTNAME);

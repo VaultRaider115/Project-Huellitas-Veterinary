@@ -18,6 +18,41 @@ env:
 jobs:
 
   # ─────────────────────────────────────────
+  # JOB 0: Revisión de dependencias nuevas
+  # ─────────────────────────────────────────
+  dependency-review:
+    name: 🔎 Revisión de dependencias
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: 📥 Checkout del código
+        uses: actions/checkout@v4
+
+      # La acción exige el Dependency Graph del repositorio. Si está desactivado
+      # no puede comparar el diff, así que se omite con un aviso en vez de romper
+      # el PR: Trivy (security.yml) sigue bloqueando CVEs HIGH/CRITICAL.
+      - name: 🔍 Comprobar Dependency Graph
+        id: graph
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/dependency-graph/sbom" >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Dependency graph desactivado::Actívalo en Settings → Code security and analysis → Dependency graph."
+          fi
+
+      - name: 🛡️ Bloquear vulnerabilidades altas o críticas
+        if: steps.graph.outputs.available == 'true'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  # ─────────────────────────────────────────
   # JOB 1: Backend - Spring Boot (Java 21)
   # ─────────────────────────────────────────
   backend:
@@ -29,10 +64,11 @@ jobs:
       mariadb:
         image: mariadb:11
         env:
-          MARIADB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+          # Credenciales efímeras exclusivas del servicio de CI.
+          MARIADB_ROOT_PASSWORD: ci-root-password
           MARIADB_DATABASE: huellitas_db
-          MARIADB_USER: ${{ secrets.DB_USER }}
-          MARIADB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MARIADB_USER: huellitas
+          MARIADB_PASSWORD: ci-test-password
         ports:
           - 3306:3306
         options: >-
@@ -57,15 +93,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: 📦 Instalar dependencias y compilar
-        run: mvn clean install -DskipTests
-
-      - name: 🧪 Ejecutar tests
-        run: mvn test
+      - name: 📦 Compilar, probar y generar SBOM
+        run: mvn -B clean verify
         env:
           SPRING_DATASOURCE_URL: jdbc:mariadb://localhost:3306/huellitas_db
-          SPRING_DATASOURCE_USERNAME: ${{ secrets.DB_USER }}
-          SPRING_DATASOURCE_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SPRING_DATASOURCE_USERNAME: huellitas
+          SPRING_DATASOURCE_PASSWORD: ci-test-password
 
       - name: 💾 Guardar JAR
         uses: actions/upload-artifact@v4
@@ -73,6 +106,13 @@ jobs:
           name: backend-jar-${{ github.sha }}
           path: devops-proyect/target/*.jar
           retention-days: 7
+
+      - name: 📋 Guardar SBOM del backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-sbom-${{ github.sha }}
+          path: devops-proyect/target/bom.json
+          retention-days: 30
 
   # ─────────────────────────────────────────
   # JOB 2: Frontend - React + Vite (Node 24)
@@ -100,11 +140,17 @@ jobs:
       - name: 📦 Instalar dependencias
         run: npm ci
 
+      - name: 🛡️ Auditar dependencias de producción
+        run: npm audit --omit=dev --audit-level=high
+
       - name: 🔍 Lint
         run: npm run lint
 
       - name: 🏗️ Build del proyecto
         run: npm run build
+
+      - name: 📋 Generar SBOM del frontend
+        run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.json
 
       - name: 💾 Guardar build frontend
         uses: actions/upload-artifact@v4
@@ -112,3 +158,10 @@ jobs:
           name: frontend-dist-${{ github.sha }}
           path: devops-frontend/dist/
           retention-days: 7
+
+      - name: 📋 Guardar SBOM del frontend
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-sbom-${{ github.sha }}
+          path: devops-frontend/sbom.json
+          retention-days: 30

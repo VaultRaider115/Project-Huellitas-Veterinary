@@ -39,8 +39,9 @@ public class CorsConfig {
                 registry.addMapping("/**")
                         .allowedOrigins(origins.toArray(String[]::new))
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                        .allowedHeaders("*")
-                        .allowCredentials(true);
+                        .allowedHeaders("Authorization", "Content-Type")
+                        .exposedHeaders("Retry-After")
+                        .allowCredentials(false);
             }
         };
     }

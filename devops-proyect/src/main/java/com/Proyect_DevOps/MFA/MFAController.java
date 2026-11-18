@@ -1,8 +1,9 @@
 package com.Proyect_DevOps.MFA;
 
+import java.util.Locale;
 import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -11,9 +12,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 
+import com.Proyect_DevOps.common.security.AttemptLimitService;
 import com.Proyect_DevOps.users.models.UsuarioModel;
 import com.Proyect_DevOps.users.services.UsuarioService;
 import com.Proyect_DevOps.utilities.AESUtil;
@@ -22,6 +26,8 @@ import com.Proyect_DevOps.utilities.JWTUtil;
 /**
  * Controlador REST para la gestión de autenticación multifactor (MFA/TOTP).
  * Proporciona endpoints para habilitar, confirmar, verificar y deshabilitar MFA.
+ * Los códigos fallidos se limitan por cuenta para impedir fuerza bruta sobre el
+ * segundo factor.
  *
  * @author Equipo DevOps Huellitas
  * @version 1.0
@@ -30,14 +36,31 @@ import com.Proyect_DevOps.utilities.JWTUtil;
 @RequestMapping("/usuario/mfa")
 public class MFAController {
 
-    @Autowired
-    private MFAService mfaService;
+    private static final Logger log = LoggerFactory.getLogger(MFAController.class);
 
-    @Autowired
-    private UsuarioService usuarioService;
+    private final MFAService mfaService;
+    private final UsuarioService usuarioService;
+    private final JWTUtil jwtUtil;
+    private final AttemptLimitService attemptLimitService;
 
-    @Autowired
-    private JWTUtil jwtUtil;
+    /**
+     * Constructor con inyección de dependencias.
+     *
+     * @param mfaService Servicio TOTP.
+     * @param usuarioService Servicio de usuarios.
+     * @param jwtUtil Utilidad de emisión de tokens.
+     * @param attemptLimitService Límite de intentos fallidos por cuenta.
+     */
+    public MFAController(
+            MFAService mfaService,
+            UsuarioService usuarioService,
+            JWTUtil jwtUtil,
+            AttemptLimitService attemptLimitService) {
+        this.mfaService = mfaService;
+        this.usuarioService = usuarioService;
+        this.jwtUtil = jwtUtil;
+        this.attemptLimitService = attemptLimitService;
+    }
 
     /**
      * Inicia el proceso de habilitación de MFA para el usuario autenticado.
@@ -91,17 +114,13 @@ public class MFAController {
             JwtAuthenticationToken auth) {
 
         String correo = auth.getToken().getSubject();
-        String codigoStr = body.get("codigo");
-
-        if (codigoStr == null || codigoStr.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "El código es requerido"));
+        ResponseEntity<Map<String, Object>> bloqueo = comprobarBloqueo(correo);
+        if (bloqueo != null) {
+            return bloqueo;
         }
 
-        int codigo;
-        try {
-            codigo = Integer.parseInt(codigoStr);
-        } catch (NumberFormatException e) {
+        Integer codigo = parsearCodigo(body);
+        if (codigo == null) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "El código debe ser numérico"));
         }
@@ -120,9 +139,11 @@ public class MFAController {
         String secretoPendiente = AESUtil.desencriptar(usuario.getSecretoPendienteMFA());
 
         if (!mfaService.verificarCodigo(secretoPendiente, codigo)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Código MFA incorrecto"));
+            return codigoIncorrecto(correo, Map.of("error", "Código MFA incorrecto"));
         }
+
+        attemptLimitService.reset(claveMFA(correo));
+        log.info("security_event=mfa_success action=confirm");
 
         // Activar MFA: mover secreto pendiente al activo
         usuario.setSecretoMFA(usuario.getSecretoPendienteMFA());
@@ -150,23 +171,19 @@ public class MFAController {
             @RequestBody Map<String, String> body,
             JwtAuthenticationToken auth) {
 
-        String codigoStr = body.get("codigo");
-
-        if (codigoStr == null || codigoStr.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("validacion", false, "error", "El código es requerido"));
+        Jwt jwt = auth.getToken();
+        String correo = jwt.getSubject();
+        ResponseEntity<Map<String, Object>> bloqueo = comprobarBloqueo(correo);
+        if (bloqueo != null) {
+            return bloqueo;
         }
 
-        int codigo;
-        try {
-            codigo = Integer.parseInt(codigoStr);
-        } catch (NumberFormatException e) {
+        Integer codigo = parsearCodigo(body);
+        if (codigo == null) {
             return ResponseEntity.badRequest()
                     .body(Map.of("validacion", false, "error", "El código debe ser numérico"));
         }
 
-        Jwt jwt = auth.getToken();
-        String correo = jwt.getSubject();
         int rolId = ((Number) jwt.getClaim("role_id")).intValue();
         String rolNombre = jwt.getClaimAsString("roles");
 
@@ -184,9 +201,11 @@ public class MFAController {
         String secreto = AESUtil.desencriptar(usuario.getSecretoMFA());
 
         if (!mfaService.verificarCodigo(secreto, codigo)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("validacion", false, "error", "Código MFA incorrecto"));
+            return codigoIncorrecto(correo, Map.of("validacion", false, "error", "Código MFA incorrecto"));
         }
+
+        attemptLimitService.reset(claveMFA(correo));
+        log.info("security_event=mfa_success action=verify");
 
         // Emitir token de acceso completo
         String token = jwtUtil.generarToken(correo, rolId, rolNombre);
@@ -211,17 +230,13 @@ public class MFAController {
             JwtAuthenticationToken auth) {
 
         String correo = auth.getToken().getSubject();
-        String codigoStr = body.get("codigo");
-
-        if (codigoStr == null || codigoStr.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "El código es requerido para deshabilitar MFA"));
+        ResponseEntity<Map<String, Object>> bloqueo = comprobarBloqueo(correo);
+        if (bloqueo != null) {
+            return bloqueo;
         }
 
-        int codigo;
-        try {
-            codigo = Integer.parseInt(codigoStr);
-        } catch (NumberFormatException e) {
+        Integer codigo = parsearCodigo(body);
+        if (codigo == null) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "El código debe ser numérico"));
         }
@@ -240,9 +255,10 @@ public class MFAController {
         String secreto = AESUtil.desencriptar(usuario.getSecretoMFA());
 
         if (!mfaService.verificarCodigo(secreto, codigo)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Código MFA incorrecto"));
+            return codigoIncorrecto(correo, Map.of("error", "Código MFA incorrecto"));
         }
+
+        attemptLimitService.reset(claveMFA(correo));
 
         // Desactivar MFA
         usuario.setSecretoMFA(null);
@@ -254,5 +270,47 @@ public class MFAController {
                 "mfaDeshabilitado", true,
                 "mensaje", "MFA deshabilitado exitosamente"
         ));
+    }
+
+    private String claveMFA(String correo) {
+        return "mfa:" + correo.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private ResponseEntity<Map<String, Object>> comprobarBloqueo(String correo) {
+        String key = claveMFA(correo);
+        if (!attemptLimitService.isBlocked(key)) {
+            return null;
+        }
+        log.warn("security_event=mfa_blocked");
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(attemptLimitService.retryAfterSeconds(key)))
+                .body(Map.of("validacion", false, "error", "Demasiados intentos. Intente más tarde."));
+    }
+
+    private Integer parsearCodigo(Map<String, String> body) {
+        String codigoStr = body != null ? body.get("codigo") : null;
+        if (codigoStr == null || codigoStr.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(codigoStr);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> codigoIncorrecto(
+            String correo,
+            Map<String, Object> body) {
+        String key = claveMFA(correo);
+        attemptLimitService.recordFailure(key);
+        log.warn("security_event=mfa_failed");
+        if (attemptLimitService.isBlocked(key)) {
+            log.warn("security_event=mfa_blocked");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header(HttpHeaders.RETRY_AFTER, Long.toString(attemptLimitService.retryAfterSeconds(key)))
+                    .body(Map.of("validacion", false, "error", "Demasiados intentos. Intente más tarde."));
+        }
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
 }

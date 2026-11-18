@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import com.Proyect_DevOps.users.models.UsuarioModel;
@@ -42,4 +45,26 @@ public interface UsuarioRepository extends JpaRepository<UsuarioModel, Integer> 
      * @return Lista de usuarios coincidentes.
      */
     List<UsuarioModel> findByRol_IdRolAndSucursal_IdSucursal(int idRol, int idSucursal);
+
+    /**
+     * Actualiza exclusivamente los campos de MFA de un usuario.
+     * Evita volver a persistir la entidad completa, que contiene el correo descifrado
+     * en memoria y podría sobrescribir el valor cifrado en reposo.
+     *
+     * @param idUsuario Identificador del usuario.
+     * @param secretoMFA Secreto TOTP activo cifrado, o {@code null}.
+     * @param secretoPendienteMFA Secreto TOTP pendiente cifrado, o {@code null}.
+     * @param mfaneed Indica si el usuario requiere el segundo factor.
+     * @return Número de filas actualizadas.
+     */
+    @Modifying
+    @Query("update UsuarioModel u set u.secretoMFA = :secretoMFA, "
+        + "u.secretoPendienteMFA = :secretoPendienteMFA, u.mfaneed = :mfaneed "
+        + "where u.idUsuario = :idUsuario")
+    int actualizarCamposMFA(
+        @Param("idUsuario") int idUsuario,
+        @Param("secretoMFA") String secretoMFA,
+        @Param("secretoPendienteMFA") String secretoPendienteMFA,
+        @Param("mfaneed") boolean mfaneed
+    );
 }

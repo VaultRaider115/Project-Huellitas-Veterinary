@@ -12,10 +12,27 @@ spec:
       labels:
         app: backend
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
+          # El workflow de despliegue reemplaza esta etiqueta por el SHA del commit.
           image: ghcr.io/nightmare115117/devops-proyect:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
           resources:
             requests:
@@ -28,9 +45,33 @@ spec:
           ports:
             - containerPort: 8080
 
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: prod
+
+            # El esquema se valida; nunca se modifica automáticamente en producción.
+            - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+              value: validate
 
             - name: JAVA_TOOL_OPTIONS
               value: >-
@@ -80,6 +121,10 @@ spec:
 
             - name: TURNSTILE_EXPECTED_HOSTNAMES
               value: dev-server.tail223158.ts.net,derivevaultraider115.studio
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

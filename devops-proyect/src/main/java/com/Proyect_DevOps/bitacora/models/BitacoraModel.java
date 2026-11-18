@@ -2,6 +2,8 @@ package com.Proyect_DevOps.bitacora.models;
 
 import java.time.LocalDateTime;
 
+import org.hibernate.annotations.Immutable;
+
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 import jakarta.persistence.Column;
@@ -21,6 +23,7 @@ import jakarta.persistence.Table;
  * @version 1.0
  */
 @Entity
+@Immutable
 @Table(name = "bitacora")
 public class BitacoraModel {
 
