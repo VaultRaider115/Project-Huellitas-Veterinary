@@ -11,7 +11,7 @@ import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.restclient.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -49,8 +49,8 @@ public class TurnstileVerifier {
                     "TURNSTILE_SECRET y TURNSTILE_EXPECTED_HOSTNAMES son obligatorios cuando Turnstile está habilitado");
         }
         this.restTemplate = restTemplateBuilder
-                .setConnectTimeout(Duration.ofSeconds(2))
-                .setReadTimeout(Duration.ofSeconds(3))
+                .connectTimeout(Duration.ofSeconds(2))
+                .readTimeout(Duration.ofSeconds(3))
                 .build();
     }
 
