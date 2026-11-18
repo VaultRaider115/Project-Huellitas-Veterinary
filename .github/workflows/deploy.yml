@@ -30,7 +30,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Verificar clave pública de Turnstile
         env:
@@ -42,7 +42,7 @@ jobs:
           fi
 
       - name: Build y Push Frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./devops-frontend
           push: true
@@ -78,10 +78,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build y Push Backend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./devops-proyect
           push: true
