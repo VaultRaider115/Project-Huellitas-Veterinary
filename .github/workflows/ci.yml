@@ -140,6 +140,12 @@ jobs:
       - name: 📦 Instalar dependencias
         run: npm ci
 
+      # react y react-dom deben ser la MISMA versión o la app falla en runtime
+      # (React error #527). Pasó al subir solo "react" desde Dependabot.
+      - name: 🧬 Verificar versiones de React
+        run: |
+          node -e "const r=require('react/package.json').version; const d=require('react-dom/package.json').version; if(r!==d){console.error('react '+r+' != react-dom '+d); process.exit(1)}"
+
       - name: 🛡️ Auditar dependencias de producción
         run: npm audit --omit=dev --audit-level=high
 
