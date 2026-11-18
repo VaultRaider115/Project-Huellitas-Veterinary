@@ -19,9 +19,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    env:
+      # Trivy resuelve los pom.xml contra Maven Central, que responde 429 a las
+      # IPs compartidas de los runners. Con ~/.m2 precargado y este flag no se
+      # hace ninguna petición al repositorio (la base de datos de CVEs sí se
+      # descarga normalmente).
+      TRIVY_OFFLINE_SCAN: 'true'
+
     steps:
       - name: 📥 Checkout del código
         uses: actions/checkout@v4
+
+      - name: ☕ Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: devops-proyect/pom.xml
+
+      - name: 📦 Precargar dependencias de Maven
+        working-directory: devops-proyect
+        run: mvn -B -q dependency:resolve
 
       - name: 🔎 Escanear repositorio con Trivy
         # El tag de la acción lleva prefijo "v": sin él no se puede resolver.

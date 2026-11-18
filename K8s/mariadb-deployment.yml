@@ -35,6 +35,7 @@ spec:
           image: mariadb:10.11
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
