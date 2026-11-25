@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Convertir owner a minúsculas
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Convertir owner a minúsculas
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
@@ -100,7 +100,7 @@ jobs:
     steps:
       # Sin checkout el workspace del runner está vacío y el scp de K8s/ falla.
       - name: Checkout código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Convertir owner a minúsculas
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
