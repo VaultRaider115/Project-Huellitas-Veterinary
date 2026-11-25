@@ -27,7 +27,7 @@ jobs:
       # escritura y el código de la rama no debe ejecutarse aquí.
       - name: 📋 Leer metadatos de Dependabot
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
