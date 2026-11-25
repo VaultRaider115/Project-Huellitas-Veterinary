@@ -101,14 +101,14 @@ jobs:
           SPRING_DATASOURCE_PASSWORD: ci-test-password
 
       - name: 💾 Guardar JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-jar-${{ github.sha }}
           path: devops-proyect/target/*.jar
           retention-days: 7
 
       - name: 📋 Guardar SBOM del backend
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-sbom-${{ github.sha }}
           path: devops-proyect/target/bom.json
@@ -159,14 +159,14 @@ jobs:
         run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.json
 
       - name: 💾 Guardar build frontend
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist-${{ github.sha }}
           path: devops-frontend/dist/
           retention-days: 7
 
       - name: 📋 Guardar SBOM del frontend
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-sbom-${{ github.sha }}
           path: devops-frontend/sbom.json
