@@ -29,7 +29,7 @@ jobs:
       pull-requests: read
     steps:
       - name: 📥 Checkout del código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # La acción exige el Dependency Graph del repositorio. Si está desactivado
       # no puede comparar el diff, así que se omite con un aviso en vez de romper
@@ -84,7 +84,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout del código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: ☕ Configurar Java ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v6
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout del código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 🟢 Configurar Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v7
