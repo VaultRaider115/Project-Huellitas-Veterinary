@@ -139,6 +139,30 @@ public class AESUtil {
     }
 
     /**
+     * Comprueba si un valor almacenado es un cifrado AES-GCM-256 válido y auténtico.
+     * La verificación descifra el valor: si la etiqueta de autenticación GCM no valida,
+     * el dato no se considera cifrado con la clave actual.
+     *
+     * @param valor Valor tal como está almacenado en la base de datos.
+     * @return {@code true} si el valor se descifra correctamente con AES-256-GCM.
+     */
+    public static boolean esCifradoAESGCM(String valor) {
+        if (valor == null || valor.isBlank()) {
+            return false;
+        }
+        try {
+            byte[] decoded = Base64.getDecoder().decode(valor);
+            if (decoded.length < IV_LENGTH + TAG_LENGTH / 8) {
+                return false;
+            }
+            desencriptar(valor);
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
      * Desencripta una cadena cifrada en Base64 que contiene el vector IV y los datos cifrados.
      *
      * @param datoEncriptado Cadena cifrada en Base64.
